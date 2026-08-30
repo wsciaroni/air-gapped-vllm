@@ -1,0 +1,29 @@
+# ==============================================================================
+# Zarf Package: 02-pkg-vllm-router-hub
+# Description: Modular Zarf package bundling the vLLM Semantic Router Hub.
+#              Provides centralized, intelligent request routing to backend
+#              model inference spokes.
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: vllm-router-hub
+  version: 0.4.2
+  architecture: amd64
+  description: "vLLM Semantic Router Hub Gateway for Multi-Model Inference Routing"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: vllm-router
+    description: "Semantic Router Gateway forwarding requests to backend model services"
+    required: true
+    charts:
+      - name: vllm-router
+        url: https://github.com/llm-semantic-router/vllm-router.git
+        version: 0.4.2
+        namespace: inference
+        valuesFiles:
+          - values-router.yaml
+    images:
+      - ghcr.io/llm-semantic-router/vllm-router:v0.4.2

@@ -1,0 +1,90 @@
+# ==============================================================================
+# Values: values-router.yaml
+# Description: Configuration for vLLM Semantic Router (Hub Gateway).
+#              Runs 2 CPU-only replicas in standalone gateway mode and forwards
+#              requests to internal model spoke services in the inference namespace.
+# ==============================================================================
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/llm-semantic-router/vllm-router
+  tag: v0.4.2
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+# Standalone Gateway Mode without GPU acceleration requirements
+resources:
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+# Node Affinity / Selector for CPU worker nodes (No GPU needed for routing hub)
+nodeSelector: {}
+tolerations: []
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - vllm-router
+          topologyKey: "kubernetes.io/hostname"
+
+routerConfig:
+  mode: "gateway"
+  port: 8000
+  host: "0.0.0.0"
+  timeout: 300
+  
+  # Static Backend Model Routing Table
+  routes:
+    # 1. GPT OSS 120B (FP8 MoE Reasoning & Code Generation)
+    - model_name: "gpt-oss-120b"
+      upstream_url: "http://gpt-oss-service.inference.svc.cluster.local:8000/v1"
+      timeout_seconds: 300
+      max_retries: 2
+
+    # 2. Nemotron 3.5 Lightning (30B MoE, Hermes Tool Calling & Agentic)
+    - model_name: "nemotron-3.5-lightning"
+      upstream_url: "http://nemotron-service.inference.svc.cluster.local:8000/v1"
+      timeout_seconds: 180
+      max_retries: 2
+
+    # 3. Laguna XS 2.1 (256k Long Context Full Repository Reasoning)
+    - model_name: "laguna-xs-2.1"
+      upstream_url: "http://laguna-service.inference.svc.cluster.local:8000/v1"
+      timeout_seconds: 600
+      max_retries: 1
+
+    # 4. Nomic Embed Text v1.5 (High Efficiency Code & Text Embeddings)
+    - model_name: "nomic-embed-text"
+      upstream_url: "http://tei-embed-service.inference.svc.cluster.local:8000/v1"
+      timeout_seconds: 60
+      max_retries: 3
+
+# Health & Metrics Monitoring
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 5

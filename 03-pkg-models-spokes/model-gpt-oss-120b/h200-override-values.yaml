@@ -1,0 +1,60 @@
+# ==============================================================================
+# Override: h200-override-values.yaml
+# Description: Configuration patch / Helm values to re-target GPT OSS 120B to a
+#              dedicated single-node 8x NVIDIA H200 (141GB SXM5) Tanzu VM Class.
+#
+# Hardware Target:
+#   - Tanzu VM Class: h200-inference-class
+#   - GPUs: 8x H200 mapped to single Pod / Worker
+#   - Tensor Parallel Size: 8 (Full inter-NVLink model sharding)
+# ==============================================================================
+
+# Target Deployment: gpt-oss-deployment (Namespace: inference)
+spec:
+  replicas: 1  # 1 Replica utilizing all 8 H200 GPUs on the dedicated node
+  template:
+    spec:
+      # Target the 8x H200 Tanzu VM Class
+      nodeSelector:
+        vSphere.vm.class: "h200-inference-class"
+
+      containers:
+        - name: vllm-gpt-oss
+          args:
+            - "--model"
+            - "/models/gpt-oss-120b"
+            - "--served-model-name"
+            - "gpt-oss-120b"
+            - "--tensor-parallel-size"
+            - "8"  # Scaled up to 8 GPUs across high-speed NVLink
+            - "--quantization"
+            - "fp8"
+            - "--enable-auto-tool-choice"
+            - "--tool-call-parser"
+            - "llama3_json"
+            - "--gpu-memory-utilization"
+            - "0.95"
+            - "--max-model-len"
+            - "131072" # Expanded context window supported by 8x 141GB VRAM
+            - "--port"
+            - "8000"
+            - "--host"
+            - "0.0.0.0"
+            - "--disable-log-requests"
+          resources:
+            requests:
+              cpu: "32"
+              memory: "256Gi"
+              nvidia.com/gpu: "8"
+            limits:
+              cpu: "64"
+              memory: "512Gi"
+              nvidia.com/gpu: "8"
+          volumeMounts:
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Gi # Increased shared memory for 8-way NCCL all-reduce

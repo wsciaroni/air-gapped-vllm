@@ -1,0 +1,18 @@
+# ==============================================================================
+# Manifest: pdb.yaml
+# Spoke: GPT OSS 120B
+# Policy: Ensures at least 1 replica is active during Tanzu node maintenance
+# ==============================================================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gpt-oss-pdb
+  namespace: inference
+  labels:
+    app: gpt-oss-inference
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: gpt-oss-inference

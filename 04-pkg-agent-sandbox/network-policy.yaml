@@ -1,0 +1,79 @@
+# ==============================================================================
+# Manifest: network-policy.yaml
+# Namespace: agent-sandbox
+# Description: Zero-Trust Kubernetes NetworkPolicy enforcing strict isolation for
+#              Autonomous AI Agent runner jobs.
+#
+# Rules:
+#   1. Default-Deny ALL Ingress & Egress.
+#   2. Ingress: Permit traffic from 'gitlab' namespace on TCP 8080.
+#   3. Egress:
+#      - DNS: 'kube-system' namespace on UDP/TCP 53.
+#      - GitLab: 'gitlab' namespace on TCP 80 & 443 (Git & API operations).
+#      - AI Gateway: 'ai-gateway' namespace on TCP 5052 (LLM / Agent reasoning).
+#   4. ALL other traffic (ESXi hypervisor, vCenter, internal subnets) is BLOCKED.
+# ==============================================================================
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-sandbox-zero-trust
+  namespace: agent-sandbox
+  labels:
+    app.kubernetes.io/name: agent-sandbox
+    app.kubernetes.io/part-of: duo-agent-platform
+    security.gitlab.com/policy: zero-trust-isolation
+spec:
+  podSelector: {} # Applies to all pods in the agent-sandbox namespace
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # ----------------------------------------------------------------------------
+  # INGRESS RULES
+  # ----------------------------------------------------------------------------
+  ingress:
+    # Allow incoming traffic from GitLab coordinator in the 'gitlab' namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gitlab
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  # ----------------------------------------------------------------------------
+  # EGRESS RULES
+  # ----------------------------------------------------------------------------
+  egress:
+    # 1. DNS Resolution (CoreDNS in kube-system)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # 2. GitLab Monolith (Git Clone/Push, Artifacts, API calls)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gitlab
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+
+    # 3. GitLab AI Gateway (Autonomous Agent Inference & Tool Calling)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ai-gateway
+      ports:
+        - protocol: TCP
+          port: 5052

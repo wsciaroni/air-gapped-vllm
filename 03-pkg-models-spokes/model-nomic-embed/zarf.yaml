@@ -1,0 +1,25 @@
+# ==============================================================================
+# Zarf Package: 03-model-nomic-embed
+# Description: Independent Zarf Spoke manifest for Nomic Embed Text v1.5 (TEI)
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: model-nomic-embed
+  version: 1.0.0
+  architecture: amd64
+  description: "Nomic Embed Text v1.5 High-Throughput TEI Embedding Spoke"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: nomic-embed-spoke
+    description: "Text Embeddings Inference (TEI) vector embedding service"
+    required: true
+    manifests:
+      - name: nomic-embed-manifests
+        namespace: inference
+        files:
+          - deployment.yaml
+    images:
+      - local-registry/tei-nomic-embed:v1

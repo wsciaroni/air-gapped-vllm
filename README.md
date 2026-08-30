@@ -1,121 +1,149 @@
-## 1. Executive Summary & Architecture
+# Air-Gapped GitLab 18 & Duo Self-Hosted on VMware vSphere with Tanzu
 
-**The Goal:** Provide developers in a disconnected (air-gapped) environment with GitLab Duo code completion and autonomous agentic workflows (GitLab Duo Agent Platform).
-
-Because the network cannot reach cloud LLMs (like Anthropic or OpenAI), the AI must be self-hosted. The system leverages VMware Tanzu to map 16 physical GPUs to Kubernetes pods. We will use a **Modular (Hub-and-Spoke) Zarf deployment** to bypass the air gap. The "Hub" is a Semantic Router that intercepts AI requests from GitLab, and the "Spokes" are standalone Zarf packages for three massive LLMs: GPT OSS 120B, Nemotron 3.5 Lightning, and Laguna XS 2.1.
+Production-grade, modular repository for deploying an air-gapped, FIPS-compliant **GitLab 18** environment with **GitLab Duo Self-Hosted** and **Autonomous Agentic Workflows** on **VMware vSphere with Tanzu** (Dell VxRail) using **Zarf** Hub-and-Spoke packaging.
 
 ---
 
-## 2. Infrastructure & Pre-Flight Checklist
-
-Before touching Zarf, the infrastructure team must configure the VxRail/Tanzu environment and gather the necessary cryptography.
-
-**Hardware & Tanzu Configuration**
-
-* **VxRail Nodes (8):** Ensure all nodes are clustered in vCenter.
-* **Physical GPUs (16):** Ensure NVIDIA vGPU VIBs are installed on ESXi or Passthrough is enabled.
-* **Tanzu VM Class:** Create a specific VM Class in Tanzu (e.g., `gpu-large`) that maps exactly 2 GPUs to a Kubernetes worker node.
-* **vSAN Storage:** Confirm at least 1.5TB of free storage to handle the massive LLM weights, MinIO object storage, and GitLab repositories.
-
-**Cryptography & Credentials**
-
-* **Corporate TLS Certificate:** A wildcard TLS cert (e.g., `*.gitlab.internal.local`) signed by your offline Root CA.
-* **GitLab License:** Must include the **GitLab Duo Enterprise** add-on.
-* **Agentic JWT Keypair:** Generate an RSA keypair to secure the AI Gateway to the GitLab Monolith [cite: 1.1.1; 1.1.3].
-* `openssl genrsa -out duo_workflow_jwt.key 2048` [cite: 1.1.1]
-* `openssl genrsa -out duo_workflow_validation.key 2048` [cite: 1.1.1]
-
-
-
----
-
-## 3. GPU Node Allocation Strategy
-
-We have 16 GPUs total (8 nodes x 2 GPUs). They will be allocated declaratively via Kubernetes deployments as follows:
-
-| Component | Tanzu Nodes Required | GPUs Required | Purpose |
-| --- | --- | --- | --- |
-| **GPT OSS 120B** | 2 Nodes | 4 GPUs | FP8 Quantized MoE for advanced reasoning. |
-| **Nemotron 3.5** | 2 Nodes | 4 GPUs | 30B MoE for agentic tool-calling (Hermes parser). |
-| **Laguna XS 2.1** | 3 Nodes | 6 GPUs | 256K Context Window for full-repository reads. |
-| **Overhead/Embedding** | 1 Node | 2 GPUs | Context embedding (TEI) and cluster overhead. |
-
----
-
-## 4. The Build & Package Phase
-
-*Requires an internet-connected staging machine with ~500GB NVMe storage, Docker, and the Zarf CLI.*
-
-### Step 4A: Bake the Model Images
-
-Because air-gapped clusters cannot reach Hugging Face, you must download the weights locally and copy them into custom Docker images.
-
-1. Download weights via CLI: `huggingface-cli download nvidia/Nemotron-3.5-Lightning-30B-A3B-W4A16 --local-dir ./nemotron-3.5`
-2. Write a Dockerfile using the vLLM base:
-```dockerfile
-FROM vllm/vllm-openai:latest
-COPY ./nemotron-3.5 /models/nemotron-3.5
+## 1. Architecture Overview
 
 ```
-
-
-3. Build the images: `docker build -t local-registry/vllm-nemotron:v1 .` (Repeat for GPT OSS and Laguna).
-
-### Step 4B: Create the Modular Zarf Packages
-
-You will define and build multiple decoupled packages so you can lifecycle the AI models independently.
-
-1. **Zarf Package 1 (Infrastructure):** Bundles MinIO, the FIPS AI Gateway [cite: 1.1.1], and GitLab 18 core. Run `zarf dev find-images --update` to automatically resolve all 50+ GitLab FIPS microservices.
-2. **Zarf Package 2 (The Hub):** Bundles the `vllm-router` Helm chart directly from GitHub.
-3. **Zarf Packages 3, 4, 5 (The Spokes):** Standard Kubernetes manifests mapping to the custom `local-registry` LLM images you built in Step 4A.
-
-### Step 4C: Compile the Bundles
-
-Run the `create` command for each package. Because the model packages are massive (30GB - 80GB each), you **must** use the `--max-package-size` flag to chunk the `.tar.zst` files into manageable sizes for secure media transfer [cite: 1.2.1; 1.2.2].
-
-```bash
-zarf package create . --max-package-size 20000 --confirm
-
+                      +------------------------------------------+
+                      |         VMware vSphere with Tanzu        |
+                      |     8x VxRail Nodes (16x L40 GPUs)       |
+                      +------------------------------------------+
+                                           |
+         +---------------------------------+---------------------------------+
+         |                                 |                                 |
++------------------+             +-------------------+             +-------------------+
+| Namespace: gitlab|             | Namespace: minio  |             | Namespace: ai-gw  |
+| - GitLab 18 Core |<----------->| - MinIO Object    |<----------->| - FIPS AI Gateway |
+|   (FIPS images)  |     S3      |   Store (vSAN)    |   Duo JWT   |   (Port 5052)     |
++------------------+             +-------------------+             +-------------------+
+         ^                                                                   |
+         | Git & API (80/443)                                    OpenAI /v1  |
+         |                                                                   v
++-------------------+                                              +-------------------+
+| Namespace: sandbox|                                              | Namespace: infer  |
+| - Agent Runners   |--------------------------------------------->| - vLLM Router Hub |
+| - Zero-Trust NetPol                                              +-------------------+
++-------------------+                                                        |
+                                                                             +--> Nemotron 3.5 (TP=2, Hermes)
+                                                                             +--> GPT OSS 120B (TP=2, FP8 MoE)
+                                                                             +--> Laguna XS 2.1 (TP=2, 256k)
+                                                                             +--> Nomic Embed (TEI Embeddings)
 ```
 
 ---
 
-## 5. Transfer & Deploy Phase
+## 2. Directory Structure
 
-*Requires physical movement of the Zarf CLI binary and the chunked `.tar.zst.part00X` files across the air gap to a management VM inside the VxRail environment.*
-
-1. **Authenticate:** SSH into your management VM and point your `kubeconfig` to the Tanzu Supervisor/Workload cluster.
-2. **Initialize Zarf:** Run `zarf init`. This installs the internal container registry and Git server directly into Tanzu [cite: 1.2.3].
-3. **Deploy Infrastructure:**
-```bash
-zarf package deploy zarf-package-gitlab-infrastructure-amd64.tar.zst --confirm
-
+```text
+.
+├── 00-scripts/
+│   ├── 01-download-weights.sh          # Hugging Face CLI download commands for all 4 models
+│   ├── 02-build-images.sh             # Docker build commands for local-registry images
+│   ├── 03-create-zarf-packages.sh     # Zarf package create commands with chunking flags
+│   ├── 04-generate-jwt-keys.sh        # OpenSSL script for Duo Workflow RSA keypair
+│   └── 05-deploy-airgap.sh            # Sequential Zarf deployment script inside air-gap
+├── 01-pkg-gitlab-core/
+│   ├── zarf.yaml                      # Zarf package for MinIO, AI Gateway, and GitLab FIPS
+│   ├── values-minio.yaml              # MinIO chart values (auto-provisioning 6 GitLab buckets)
+│   ├── values-ai-gateway.yaml         # FIPS AI Gateway values, Duo Workflow JWT, model routing
+│   └── values-gitlab.yaml             # GitLab 9.x values enforcing FIPS images & MinIO object store
+├── 02-pkg-vllm-router-hub/
+│   ├── zarf.yaml                      # Hub package pulling llm-semantic-router/vllm-router chart
+│   └── values-router.yaml             # Static routes forwarding requests to backend model services
+├── 03-pkg-models-spokes/
+│   ├── model-nemotron-3.5/
+│   │   ├── Dockerfile                 # vLLM base + baked weights
+│   │   ├── deployment.yaml            # 2 replicas, TP=2, /dev/shm, Hermes tool parser
+│   │   ├── pdb.yaml                   # PodDisruptionBudget (minAvailable: 1)
+│   │   └── zarf.yaml                  # Independent Zarf Spoke manifest
+│   ├── model-gpt-oss-120b/
+│   │   ├── Dockerfile                 # vLLM base + baked weights
+│   │   ├── deployment.yaml            # FP8 quantized MoE, TP=2, tool calling enabled
+│   │   ├── h200-override-values.yaml  # NodeSelector & TP=8 override for 8x H200 node
+│   │   ├── pdb.yaml                   # PodDisruptionBudget
+│   │   └── zarf.yaml                  # Independent Zarf Spoke manifest
+│   ├── model-laguna-xs/
+│   │   ├── Dockerfile                 # vLLM base + baked weights
+│   │   ├── deployment.yaml            # 3 replicas, TP=2, 256k context window
+│   │   ├── pdb.yaml                   # PodDisruptionBudget
+│   │   └── zarf.yaml                  # Independent Zarf Spoke manifest
+│   └── model-nomic-embed/
+│   │   ├── Dockerfile                 # TEI base + baked embeddings
+│   │   ├── deployment.yaml            # Text Embeddings Inference deployment & service
+│   │   └── zarf.yaml                  # Independent Zarf Spoke manifest
+└── 04-pkg-agent-sandbox/
+    ├── zarf.yaml                      # Zarf package for isolated GitLab Runners & security policies
+    ├── values-runner.yaml             # Kubernetes executor runner values targeting agent jobs
+    └── network-policy.yaml            # Zero-Trust NetworkPolicy isolating runner pods
 ```
-
-
-4. **Deploy the AI Stack (Hub then Spokes):**
-```bash
-zarf package deploy zarf-package-vllm-router-hub.tar.zst --confirm
-zarf package deploy zarf-package-model-nemotron.tar.zst --confirm
-zarf package deploy zarf-package-model-gptoss.tar.zst --confirm
-zarf package deploy zarf-package-model-lagunaxs.tar.zst --confirm
-
-```
-
-
-*Zarf will automatically reassemble the chunked files, push the 150GB of model weights into the internal registry, and apply the Kubernetes manifests [cite: 1.2.3].*
 
 ---
 
-## 6. Day 2 Operations & Agent Isolation
+## 3. Hardware & GPU Allocation Strategy
 
-**Model Scaling:** Because the packages are decoupled, you can pause any model to free up GPUs without uninstalling it:
+Cluster: **8x Dell VxRail nodes** managed by VMware vSphere with Tanzu. Each node is equipped with **2x NVIDIA L40 (48GB) PCIe GPUs** mapped via Tanzu VM Class `vSphere.vm.class: "best-effort-gpu"`.
 
-```bash
-kubectl scale deployment vllm-nemotron-backend --replicas=0 -n inference
+| Component | Node Count | GPUs Allocated | VM Class | Purpose |
+| :--- | :--- | :--- | :--- | :--- |
+| **Nemotron 3.5 Lightning** | 2 Nodes | 4 GPUs (2 Replicas, TP=2) | `best-effort-gpu` | Fast code completion & Hermes tool calling |
+| **GPT OSS 120B** | 2 Nodes | 4 GPUs (2 Replicas, TP=2) | `best-effort-gpu` | FP8 MoE for advanced agentic reasoning |
+| **Laguna XS 2.1** | 3 Nodes | 6 GPUs (3 Replicas, TP=2) | `best-effort-gpu` | 256k long context for full repository analysis |
+| **Nomic Embed Text** | 1 Node | 2 GPUs (2 Replicas, 1 GPU ea) | `best-effort-gpu` | High-throughput semantic code embeddings |
+| **Future H200 Expansion** | 1 Node | 8x H200 (141GB SXM5) | `h200-inference-class`| Single-node TP=8 execution via `h200-override-values.yaml` |
 
-```
+---
 
-**Zero-Trust Sandboxes:** To support Agentic development (where the AI writes and executes code), you must deploy isolated GitLab Runners [cite: 1.1.1; 1.1.4]. The engineering team must apply a Kubernetes `NetworkPolicy` to the Runner namespace that denies all Egress traffic except to the GitLab instance and the AI Gateway, physically preventing an AI-generated script from scanning the VxRail management plane.
+## 4. Lifecycle & Air-Gap Operations
 
-Alternatively, developers can use OpenCode podman containers to develop in sandboxes on their local machine.
+### Phase 1: Internet-Connected Staging Machine
+
+1. **Download Model Weights:**
+   ```bash
+   chmod +x ./00-scripts/*.sh
+   ./00-scripts/01-download-weights.sh
+   ```
+
+2. **Bake Docker Images:**
+   ```bash
+   ./00-scripts/02-build-images.sh
+   ```
+
+3. **Generate Duo Workflow JWT Keypair:**
+   ```bash
+   ./00-scripts/04-generate-jwt-keys.sh
+   ```
+
+4. **Compile Chunked Zarf Packages (20GB max per chunk):**
+   ```bash
+   ./00-scripts/03-create-zarf-packages.sh
+   ```
+
+5. **Transfer Artifacts:** Copy `dist/` and `keys/` directories across the physical air gap / optical diode onto the internal Tanzu bastion host.
+
+---
+
+### Phase 2: Disconnected Tanzu Environment
+
+1. **Execute End-to-End Air-Gap Deployment:**
+   ```bash
+   ./00-scripts/05-deploy-airgap.sh
+   ```
+
+2. **Verify Cluster Health:**
+   ```bash
+   kubectl get pods -n inference -o wide
+   kubectl get pods -n gitlab
+   kubectl get pods -n ai-gateway
+   kubectl get pods -n agent-sandbox
+   ```
+
+---
+
+## 5. Security & Zero-Trust Isolation
+
+- **FIPS 140-2/3 Compliance:** All core GitLab components run with `global.image.tagSuffix: "-fips"` using official Red Hat UBI FIPS base layers.
+- **IPC Stability:** All GPU pods mount an `emptyDir` memory volume at `/dev/shm` (size `16Gi` / `64Gi`) to eliminate NCCL inter-process crashes during tensor parallelism.
+- **Agent Sandbox Isolation:** Pods running in `agent-sandbox` are enforced with a default-deny `NetworkPolicy`. Egress is restricted exclusively to DNS (`kube-system:53`), GitLab API/Git (`gitlab:80/443`), and AI Gateway (`ai-gateway:5052`), preventing AI-generated code execution from probing the vSphere management plane or internal subnets.

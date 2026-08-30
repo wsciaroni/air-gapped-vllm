@@ -1,0 +1,81 @@
+# ==============================================================================
+# Zarf Package: 01-pkg-gitlab-core
+# Description: Modular Zarf package bundling MinIO Object Storage, FIPS GitLab 18
+#              Core, and the GitLab AI Gateway (FIPS) for air-gapped deployment.
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: gitlab-core
+  version: 18.0.0-fips
+  architecture: amd64
+  description: "Air-gapped FIPS GitLab 18 Core with MinIO and AI Gateway"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  # ----------------------------------------------------------------------------
+  # Component 1: MinIO Object Storage
+  # ----------------------------------------------------------------------------
+  - name: minio-storage
+    description: "S3-compatible object storage backed by vSAN for GitLab artifacts and backups"
+    required: true
+    charts:
+      - name: minio
+        url: https://charts.min.io/
+        version: 5.3.0
+        namespace: minio
+        valuesFiles:
+          - values-minio.yaml
+    images:
+      - minio/minio:RELEASE.2024-05-10T01-41-38Z
+      - minio/mc:RELEASE.2024-05-09T17-04-24Z
+
+  # ----------------------------------------------------------------------------
+  # Component 2: GitLab AI Gateway (FIPS)
+  # ----------------------------------------------------------------------------
+  - name: ai-gateway-fips
+    description: "GitLab Duo AI Gateway service running in FIPS mode"
+    required: true
+    charts:
+      - name: ai-gateway
+        url: https://gitlab.com/gitlab-org/charts/ai-gateway/-/raw/main
+        version: 0.5.0
+        namespace: ai-gateway
+        valuesFiles:
+          - values-ai-gateway.yaml
+    images:
+      - registry.gitlab.com/gitlab-org/modelgateway/modelgateway:v18.0.0-fips
+
+  # ----------------------------------------------------------------------------
+  # Component 3: GitLab 18 Core (FIPS)
+  # ----------------------------------------------------------------------------
+  - name: gitlab-fips-core
+    description: "GitLab Enterprise Edition 18 with FIPS microservices"
+    required: true
+    charts:
+      - name: gitlab
+        url: https://charts.gitlab.io/
+        version: 9.0.0
+        namespace: gitlab
+        valuesFiles:
+          - values-gitlab.yaml
+    images:
+      # Core Rails / Sidekiq FIPS
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ee:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ee:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ee:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ee:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitaly:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-shell:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-container-registry:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-exporter:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v18.0.0-fips
+      # Databases & Helpers
+      - registry.gitlab.com/gitlab-org/build/cng/certificates:v18.0.0
+      - registry.gitlab.com/gitlab-org/build/cng/kubectl:v18.0.0
+      - bitnami/postgresql:14.11.0-debian-12-r0
+      - bitnami/redis:7.0.15-debian-12-r1
+      - ingress-nginx/controller:v1.10.0
+      - ingress-nginx/kube-webhook-certgen:v1.4.0
+      - prom/prometheus:v2.51.0

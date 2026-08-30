@@ -1,0 +1,137 @@
+# ==============================================================================
+# Manifest: deployment.yaml
+# Spoke: Nemotron 3.5 Lightning (30B MoE)
+# Infrastructure: 2 Replicas, TP=2 (4 GPUs total), Tanzu best-effort-gpu VM class
+# Tool Calling: Hermes tool parser enabled for GitLab Duo Agentic workflows
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nemotron-deployment
+  namespace: inference
+  labels:
+    app: nemotron-inference
+    app.kubernetes.io/name: nemotron-service
+    app.kubernetes.io/component: llm-spoke
+    app.kubernetes.io/part-of: ai-inference-stack
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: nemotron-inference
+  template:
+    metadata:
+      labels:
+        app: nemotron-inference
+        app.kubernetes.io/name: nemotron-service
+    spec:
+      # Tanzu GPU VM Class mapping 2x L40 GPUs per worker node
+      nodeSelector:
+        vSphere.vm.class: "best-effort-gpu"
+      
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - nemotron-inference
+                topologyKey: "kubernetes.io/hostname"
+
+      containers:
+        - name: vllm-nemotron
+          image: local-registry/vllm-nemotron:v1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model"
+            - "/models/nemotron-3.5-lightning"
+            - "--served-model-name"
+            - "nemotron-3.5-lightning"
+            - "--tensor-parallel-size"
+            - "2"
+            - "--max-model-len"
+            - "131072"
+            - "--enable-auto-tool-choice"
+            - "--tool-call-parser"
+            - "hermes"
+            - "--trust-remote-code"
+            - "--gpu-memory-utilization"
+            - "0.92"
+            - "--port"
+            - "8000"
+            - "--host"
+            - "0.0.0.0"
+            - "--disable-log-requests"
+          env:
+            - name: NCCL_DEBUG
+              value: "WARN"
+            - name: VLLM_NO_USAGE_STATS
+              value: "1"
+          ports:
+            - name: http-inference
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "8"
+              memory: "32Gi"
+              nvidia.com/gpu: "2"
+            limits:
+              cpu: "16"
+              memory: "64Gi"
+              nvidia.com/gpu: "2"
+          volumeMounts:
+            # High-speed shared memory to prevent PyTorch / NCCL tensor-parallel IPC crashes
+            - name: dshm
+              mountPath: /dev/shm
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 120
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 2
+      volumes:
+        # 16Gi RAM-backed emptyDir mounted to /dev/shm
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nemotron-service
+  namespace: inference
+  labels:
+    app: nemotron-inference
+    app.kubernetes.io/name: nemotron-service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app: nemotron-inference

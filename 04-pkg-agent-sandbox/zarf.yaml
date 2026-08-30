@@ -1,0 +1,39 @@
+# ==============================================================================
+# Zarf Package: 04-pkg-agent-sandbox
+# Description: Modular Zarf package bundling the GitLab Runner and Zero-Trust
+#              NetworkPolicy for isolated Autonomous Agentic workloads.
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: agent-sandbox
+  version: 18.0.0-fips
+  architecture: amd64
+  description: "Isolated GitLab Runner and Zero-Trust Network Policy for AI Agent Sandboxes"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: agent-network-policy
+    description: "Zero-Trust default-deny network policy for the agent-sandbox namespace"
+    required: true
+    manifests:
+      - name: sandbox-security-manifests
+        namespace: agent-sandbox
+        files:
+          - network-policy.yaml
+
+  - name: agent-runner
+    description: "GitLab Runner Helm Chart configured for agentic sandbox execution"
+    required: true
+    charts:
+      - name: gitlab-runner
+        url: https://charts.gitlab.io/
+        version: 0.65.0
+        namespace: agent-sandbox
+        valuesFiles:
+          - values-runner.yaml
+    images:
+      - registry.gitlab.com/gitlab-org/gitlab-runner:v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v18.0.0-fips

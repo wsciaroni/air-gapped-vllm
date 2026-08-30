@@ -1,0 +1,133 @@
+# ==============================================================================
+# Manifest: deployment.yaml
+# Spoke: Laguna XS 2.1 (256k Long-Context Model)
+# Infrastructure: 3 Replicas, TP=2 (6 GPUs total across 3 nodes), L40 GPUs
+# Purpose: Massive context window for full-repository understanding and review
+# ==============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: laguna-deployment
+  namespace: inference
+  labels:
+    app: laguna-inference
+    app.kubernetes.io/name: laguna-service
+    app.kubernetes.io/component: llm-spoke
+    app.kubernetes.io/part-of: ai-inference-stack
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app: laguna-inference
+  template:
+    metadata:
+      labels:
+        app: laguna-inference
+        app.kubernetes.io/name: laguna-service
+    spec:
+      # Tanzu GPU VM Class mapping 2x L40 GPUs per worker node
+      nodeSelector:
+        vSphere.vm.class: "best-effort-gpu"
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - laguna-inference
+                topologyKey: "kubernetes.io/hostname"
+
+      containers:
+        - name: vllm-laguna
+          image: local-registry/vllm-laguna:v1
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model"
+            - "/models/laguna-xs-2.1"
+            - "--served-model-name"
+            - "laguna-xs-2.1"
+            - "--tensor-parallel-size"
+            - "2"
+            - "--max-model-len"
+            - "262144"
+            - "--trust-remote-code"
+            - "--gpu-memory-utilization"
+            - "0.94"
+            - "--port"
+            - "8000"
+            - "--host"
+            - "0.0.0.0"
+            - "--disable-log-requests"
+          env:
+            - name: NCCL_DEBUG
+              value: "WARN"
+            - name: VLLM_NO_USAGE_STATS
+              value: "1"
+          ports:
+            - name: http-inference
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "12"
+              memory: "48Gi"
+              nvidia.com/gpu: "2"
+            limits:
+              cpu: "24"
+              memory: "96Gi"
+              nvidia.com/gpu: "2"
+          volumeMounts:
+            # 16Gi RAM-backed emptyDir mounted to /dev/shm for tensor parallelism IPC
+            - name: dshm
+              mountPath: /dev/shm
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 150
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 90
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 2
+      volumes:
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: laguna-service
+  namespace: inference
+  labels:
+    app: laguna-inference
+    app.kubernetes.io/name: laguna-service
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+  selector:
+    app: laguna-inference

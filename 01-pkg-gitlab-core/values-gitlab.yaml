@@ -1,0 +1,216 @@
+# ==============================================================================
+# Values: values-gitlab.yaml
+# Description: Production GitLab 18 (Helm Chart 9.x) values for Air-Gapped,
+#              FIPS-compliant vSphere with Tanzu deployment.
+# Constraints:
+#   - Enforce FIPS images across all microservices (tagSuffix: "-fips")
+#   - Disable external ACME/Certmanager & Telemetry
+#   - Connect to internal MinIO for all S3 object storage
+#   - Enable GitLab Duo Self-Hosted & Duo Workflow Agentic Platform
+# ==============================================================================
+
+global:
+  edition: ee
+  hosts:
+    domain: gitlab.internal.local
+    hostSuffix: ""
+    https: true
+    gitlab:
+      name: gitlab.internal.local
+      https: true
+    registry:
+      name: registry.gitlab.internal.local
+      https: true
+    minio:
+      name: minio.gitlab.internal.local
+      https: true
+
+  # ----------------------------------------------------------------------------
+  # FIPS Compliance Enforcement
+  # ----------------------------------------------------------------------------
+  image:
+    tagSuffix: "-fips"
+    pullPolicy: IfNotPresent
+
+  # Disable external telemetry / usage ping for strict air-gap compliance
+  serviceDesk:
+    enabled: false
+
+  # ----------------------------------------------------------------------------
+  # Ingress & TLS (Corporate Root CA signed certificates)
+  # ----------------------------------------------------------------------------
+  ingress:
+    enabled: true
+    apiVersion: "networking.k8s.io/v1"
+    configureCertmanager: false
+    tls:
+      enabled: true
+      secretName: gitlab-wildcard-tls
+    annotations:
+      kubernetes.io/ingress.class: "nginx"
+      nginx.ingress.kubernetes.io/proxy-body-size: "1024m"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+  # ----------------------------------------------------------------------------
+  # Global Object Storage (Internal MinIO S3 Backend)
+  # ----------------------------------------------------------------------------
+  minio:
+    enabled: false  # Using standalone/dedicated MinIO in minio namespace
+
+  appConfig:
+    enableUsagePing: false
+    enableSeatLink: false
+    disableAnimations: false
+    
+    # S3 Object Storage Connection Config
+    object_store:
+      enabled: true
+      connection:
+        secret: gitlab-minio-credentials
+        key: config
+
+    artifacts:
+      bucket: gitlab-artifacts
+    lfs:
+      bucket: gitlab-lfs
+    packages:
+      bucket: gitlab-packages
+    uploads:
+      bucket: gitlab-uploads
+    backups:
+      bucket: gitlab-backup
+
+    # Duo Workflow / AI Gateway Integration Configuration
+    duoWorkflow:
+      enabled: true
+      serviceAccount: "duo-workflow-sa"
+      jwtSigningKeySecret: "gitlab-duo-workflow-jwt-signing-key"
+
+    aiGateway:
+      enabled: true
+      url: "http://ai-gateway.ai-gateway.svc.cluster.local:5052"
+      serverUrl: "http://ai-gateway.ai-gateway.svc.cluster.local:5052"
+
+# ------------------------------------------------------------------------------
+# CertManager & External Let's Encrypt (Disabled for Air-Gap)
+# ------------------------------------------------------------------------------
+certmanager:
+  install: false
+
+certmanager-issuer:
+  email: admin@gitlab.internal.local
+
+# ------------------------------------------------------------------------------
+# NGINX Ingress Controller
+# ------------------------------------------------------------------------------
+nginx-ingress:
+  enabled: true
+  controller:
+    replicaCount: 2
+    service:
+      type: LoadBalancer
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 2Gi
+
+# ------------------------------------------------------------------------------
+# GitLab Webservice (Rails Frontend/API)
+# ------------------------------------------------------------------------------
+gitlab:
+  webservice:
+    minReplicas: 2
+    maxReplicas: 5
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+    extraEnv:
+      GITLAB_DUO_AI_GATEWAY_URL: "http://ai-gateway.ai-gateway.svc.cluster.local:5052"
+      GITLAB_FIPS_MODE: "true"
+
+  sidekiq:
+    minReplicas: 2
+    maxReplicas: 6
+    resources:
+      requests:
+        cpu: 1500m
+        memory: 3Gi
+      limits:
+        cpu: 3000m
+        memory: 6Gi
+
+  gitaly:
+    persistence:
+      enabled: true
+      storageClass: "vsan-default"
+      size: 500Gi
+    resources:
+      requests:
+        cpu: 2000m
+        memory: 4Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
+
+  gitlab-shell:
+    minReplicas: 2
+    maxReplicas: 4
+
+# ------------------------------------------------------------------------------
+# Container Registry (FIPS & MinIO S3 backed)
+# ------------------------------------------------------------------------------
+registry:
+  enabled: true
+  storage:
+    secret: gitlab-registry-minio-s3
+    key: config
+
+# ------------------------------------------------------------------------------
+# PostgreSQL Database & Redis (In-Cluster vSAN Persistent)
+# ------------------------------------------------------------------------------
+postgresql:
+  install: true
+  primary:
+    persistence:
+      storageClass: "vsan-default"
+      size: 100Gi
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+
+redis:
+  install: true
+  master:
+    persistence:
+      storageClass: "vsan-default"
+      size: 20Gi
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+# Disable Prometheus / Grafana external outbound alerts
+prometheus:
+  install: true
+  server:
+    retention: 15d
+    persistentVolume:
+      storageClass: "vsan-default"
+      size: 50Gi
+
+gitlab-runner:
+  install: false # Deployed independently in 04-pkg-agent-sandbox

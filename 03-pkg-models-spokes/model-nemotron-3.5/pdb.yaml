@@ -1,0 +1,18 @@
+# ==============================================================================
+# Manifest: pdb.yaml
+# Spoke: Nemotron 3.5 Lightning
+# Policy: Ensures at least 1 replica is active during Tanzu node maintenance
+# ==============================================================================
+
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nemotron-pdb
+  namespace: inference
+  labels:
+    app: nemotron-inference
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: nemotron-inference

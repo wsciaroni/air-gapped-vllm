@@ -1,0 +1,26 @@
+# ==============================================================================
+# Zarf Package: 03-model-laguna-xs
+# Description: Independent Zarf Spoke manifest for Laguna XS 2.1 (256k Context)
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: model-laguna-xs
+  version: 1.0.0
+  architecture: amd64
+  description: "Laguna XS 2.1 256k Context Window Spoke for Deep Repository Reads"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: laguna-spoke
+    description: "Laguna XS 2.1 vLLM backend inference engine"
+    required: true
+    manifests:
+      - name: laguna-manifests
+        namespace: inference
+        files:
+          - deployment.yaml
+          - pdb.yaml
+    images:
+      - local-registry/vllm-laguna:v1

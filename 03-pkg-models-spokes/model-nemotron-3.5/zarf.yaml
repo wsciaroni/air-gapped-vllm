@@ -1,0 +1,26 @@
+# ==============================================================================
+# Zarf Package: 03-model-nemotron-3.5
+# Description: Independent Zarf Spoke manifest for Nemotron 3.5 Lightning (30B)
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: model-nemotron-3.5
+  version: 1.0.0
+  architecture: amd64
+  description: "Nemotron 3.5 Lightning 30B MoE Spoke with Hermes Tool Calling"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: nemotron-spoke
+    description: "Nemotron 3.5 Lightning vLLM backend inference engine"
+    required: true
+    manifests:
+      - name: nemotron-manifests
+        namespace: inference
+        files:
+          - deployment.yaml
+          - pdb.yaml
+    images:
+      - local-registry/vllm-nemotron:v1

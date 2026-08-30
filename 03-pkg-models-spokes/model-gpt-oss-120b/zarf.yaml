@@ -1,0 +1,26 @@
+# ==============================================================================
+# Zarf Package: 03-model-gpt-oss-120b
+# Description: Independent Zarf Spoke manifest for GPT OSS 120B (FP8 MoE)
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: model-gpt-oss-120b
+  version: 1.0.0
+  architecture: amd64
+  description: "GPT OSS 120B FP8 Quantized MoE Spoke for Advanced Agent Reasoning"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: gpt-oss-spoke
+    description: "GPT OSS 120B vLLM backend inference engine"
+    required: true
+    manifests:
+      - name: gpt-oss-manifests
+        namespace: inference
+        files:
+          - deployment.yaml
+          - pdb.yaml
+    images:
+      - local-registry/vllm-gpt-oss:v1

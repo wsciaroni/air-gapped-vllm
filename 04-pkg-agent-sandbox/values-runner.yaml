@@ -1,0 +1,71 @@
+# ==============================================================================
+# Values: values-runner.yaml
+# Description: GitLab Runner Helm values configured for Autonomous Agentic
+#              sandboxed workloads in the agent-sandbox namespace.
+# ==============================================================================
+
+image:
+  registry: registry.gitlab.com
+  image: gitlab-org/gitlab-runner
+  tag: v18.0.0-fips
+
+gitlabUrl: "https://gitlab.internal.local"
+runnerRegistrationToken: "AGENT_SANDBOX_REGISTRATION_TOKEN_PLACEHOLDER"
+
+concurrent: 10
+checkInterval: 5
+
+rbac:
+  create: true
+  clusterWideAccess: false
+
+# Enforce pod execution inside the isolated agent-sandbox namespace
+runners:
+  name: "duo-agentic-sandbox-runner"
+  tags: "duo-agent,agent-sandbox,autonomous"
+  locked: true
+  runUntagged: false
+  secret: "gitlab-runner-agent-secret"
+
+  # Kubernetes Executor Configuration
+  config: |
+    [[runners]]
+      [runners.kubernetes]
+        namespace = "agent-sandbox"
+        image = "registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v18.0.0-fips"
+        privileged = false
+        allow_privilege_escalation = false
+        cpu_request = "1000m"
+        cpu_limit = "4000m"
+        memory_request = "2Gi"
+        memory_limit = "8Gi"
+        service_account_overwrite_allowed = ""
+        poll_interval = 3
+        poll_timeout = 360
+        
+        # Hardened Security Context for AI-generated code execution
+        [runners.kubernetes.pod_security_context]
+          run_as_non_root = true
+          run_as_user = 1000
+          fs_group = 1000
+
+        [runners.kubernetes.container_security_context]
+          allow_privilege_escalation = false
+          read_only_root_filesystem = false
+          capabilities_drop = ["ALL"]
+
+        # Ephemeral RAM / tmpfs workspace to prevent persistent host state leaks
+        [runners.kubernetes.volumes]
+          [[runners.kubernetes.volumes.empty_dir]]
+            name = "builds-cache"
+            mount_path = "/tmp"
+            medium = "Memory"
+            size_limit = "4Gi"
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 2Gi

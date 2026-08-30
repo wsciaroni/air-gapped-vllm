@@ -1,0 +1,98 @@
+# ==============================================================================
+# Values: values-ai-gateway.yaml
+# Description: GitLab Duo AI Gateway Helm values for Air-Gapped FIPS deployment.
+#              Connects the GitLab monolith to the internal vLLM Semantic Router
+#              and enables Duo Workflow Agentic JWT validation.
+# ==============================================================================
+
+image:
+  repository: registry.gitlab.com/gitlab-org/modelgateway/modelgateway
+  tag: v18.0.0-fips
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+service:
+  type: ClusterIP
+  port: 5052
+  targetPort: 5052
+
+containerPort: 5052
+
+env:
+  # FIPS & Offline Execution Mode
+  AIGW_FASTAPI__ENV: "production"
+  AIGW_FASTAPI__DOCS_URL: ""
+  AIGW_FASTAPI__OPENAPI_URL: ""
+  AIGW_LOGGING__LEVEL: "INFO"
+  AIGW_LOGGING__FORMAT_JSON: "true"
+  AIGW_GITLAB_URL: "https://gitlab.internal.local"
+  AIGW_GITLAB_API_URL: "https://gitlab.internal.local/api/v4"
+  
+  # Upstream vLLM Semantic Router Hub Endpoint
+  AIGW_CUSTOM_MODELS__ENABLED: "true"
+  AIGW_CUSTOM_MODELS__ENDPOINT: "http://vllm-router.inference.svc.cluster.local:8000/v1"
+  AIGW_CUSTOM_MODELS__API_KEY: "vllm-internal-airgap-token"
+  
+  # Model Mapping to internal spokes routed via vLLM Router Hub
+  AIGW_CODE_COMPLETIONS__ENGINE: "custom_openai"
+  AIGW_CODE_COMPLETIONS__MODEL: "nemotron-3.5-lightning"
+  AIGW_CODE_GENERATIONS__ENGINE: "custom_openai"
+  AIGW_CODE_GENERATIONS__MODEL: "gpt-oss-120b"
+  AIGW_AGENTIC_WORKFLOWS__ENGINE: "custom_openai"
+  AIGW_AGENTIC_WORKFLOWS__MODEL: "gpt-oss-120b"
+  AIGW_CHAT__ENGINE: "custom_openai"
+  AIGW_CHAT__MODEL: "nemotron-3.5-lightning"
+  AIGW_EMBEDDINGS__ENGINE: "custom_openai"
+  AIGW_EMBEDDINGS__MODEL: "nomic-embed-text"
+  
+  # Duo Workflow Agentic JWT Validation
+  AIGW_DUO_WORKFLOW__ENABLED: "true"
+
+# Inject Duo Workflow Signing & Validation Key from Kubernetes Secret
+extraEnvFrom:
+  - secretRef:
+      name: ai-gateway-duo-workflow-jwt-validation-key
+
+envValueFrom:
+  DUO_WORKFLOW_SELF_SIGNED_JWT__SIGNING_KEY:
+    secretKeyRef:
+      name: ai-gateway-duo-workflow-jwt-validation-key
+      key: signing_key.pem
+      optional: false
+  DUO_WORKFLOW_SELF_SIGNED_JWT__VALIDATION_KEY:
+    secretKeyRef:
+      name: ai-gateway-duo-workflow-jwt-validation-key
+      key: validation_key.pem
+      optional: false
+
+resources:
+  requests:
+    cpu: 1000m
+    memory: 2Gi
+  limits:
+    cpu: 4000m
+    memory: 4Gi
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+livenessProbe:
+  httpGet:
+    path: /monitoring/healthz
+    port: 5052
+  initialDelaySeconds: 15
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /monitoring/ready
+    port: 5052
+  initialDelaySeconds: 10
+  periodSeconds: 5
