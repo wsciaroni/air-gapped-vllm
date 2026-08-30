@@ -6,7 +6,7 @@
 kind: ZarfPackageConfig
 apiVersion: zarf.dev/v1alpha1
 metadata:
-  name: model-nemotron-3.5
+  name: model-nemotron-3-5
   version: 1.0.0
   architecture: amd64
   description: "Nemotron 3.5 Lightning 30B MoE Spoke with Hermes Tool Calling"
