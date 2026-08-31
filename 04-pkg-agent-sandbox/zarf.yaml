@@ -35,5 +35,5 @@ components:
           - values-runner.yaml
     images:
       - registry.gitlab.com/gitlab-org/gitlab-runner:v18.0.0-fips
-      - registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v18.0.0-fips
+      - registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:ubi-fips-x86_64-latest
       - registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v18.0.0-fips

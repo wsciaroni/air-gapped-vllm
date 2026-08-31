@@ -1,0 +1,29 @@
+# ==============================================================================
+# Zarf Package: minio-storage
+# Description: Standalone Zarf package for MinIO Object Storage with auto-provisioned
+#              GitLab buckets and vSAN persistence.
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: minio-storage
+  version: 5.3.0
+  architecture: amd64
+  description: "Air-gapped MinIO S3 Object Storage with auto-provisioned GitLab buckets"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: minio-storage
+    description: "S3-compatible object storage backed by vSAN for GitLab artifacts and backups"
+    required: true
+    charts:
+      - name: minio
+        url: https://charts.min.io/
+        version: 5.3.0
+        namespace: minio
+        valuesFiles:
+          - values-minio.yaml
+    images:
+      - docker.io/minio/minio:RELEASE.2024-05-10T01-41-38Z
+      - docker.io/minio/mc:RELEASE.2024-05-09T17-04-24Z

@@ -1,0 +1,54 @@
+# ==============================================================================
+# Values: values-minio.yaml
+# Description: Production MinIO Object Store for Air-Gapped GitLab 18.
+#              Auto-provisions the 6 required buckets with vSAN storage backing.
+# ==============================================================================
+
+mode: standalone
+replicas: 1
+
+image:
+  repository: minio/minio
+  tag: RELEASE.2024-05-10T01-41-38Z
+  pullPolicy: IfNotPresent
+
+# Root Credentials (in production, link to Kubernetes Secret)
+rootUser: "minioadmin"
+rootPassword: "MinioStrongAirGapSecretKey2026!"
+
+# Persistence configured for VMware vSAN Default Storage Policy
+persistence:
+  enabled: true
+  storageClass: "vsan-default"
+  accessMode: ReadWriteOnce
+  size: 500Gi
+
+# Auto-provision the 6 core GitLab storage buckets on startup
+defaultBuckets: "gitlab-artifacts,gitlab-lfs,gitlab-packages,gitlab-uploads,gitlab-registry,gitlab-backup"
+
+# Post-install job to enforce bucket creation and access policies
+postJob:
+  enabled: true
+  image:
+    repository: minio/mc
+    tag: RELEASE.2024-05-09T17-04-24Z
+    pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 9000
+  consolePort: 9001
+
+resources:
+  requests:
+    cpu: 2000m
+    memory: 4Gi
+  limits:
+    cpu: 4000m
+    memory: 8Gi
+
+# Zero external egress / telemetry disabled
+environment:
+  MINIO_BROWSER: "on"
+  MINIO_UPDATE: "off"
+  MINIO_PROMETHEUS_AUTH_TYPE: "public"

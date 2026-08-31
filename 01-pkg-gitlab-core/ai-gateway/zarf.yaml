@@ -1,0 +1,25 @@
+# ==============================================================================
+# Zarf Package: ai-gateway-fips
+# Description: Standalone Zarf package for GitLab Duo AI Gateway in FIPS mode.
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: ai-gateway-fips
+  version: 18.0.0-fips
+  architecture: amd64
+  description: "Air-gapped GitLab Duo AI Gateway service running in FIPS mode"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: ai-gateway-fips
+    description: "GitLab Duo AI Gateway service with Duo Workflow JWT validation"
+    required: true
+    manifests:
+      - name: ai-gateway-manifests
+        namespace: ai-gateway
+        files:
+          - deployment.yaml
+    images:
+      - registry.gitlab.com/gitlab-org/modelgateway/modelgateway:v18.0.0-fips

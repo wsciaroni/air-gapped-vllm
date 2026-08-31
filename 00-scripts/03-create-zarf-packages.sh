@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Script: 03-create-zarf-packages.sh
-# Description: Creates modular Zarf packages for GitLab Core, vLLM Router Hub,
-#              Inference Model Spokes, and Agent Sandbox.
+# Description: Creates modular Zarf packages for MinIO, AI Gateway, GitLab Core,
+#              vLLM Router Hub, Inference Model Spokes, and Agent Sandbox.
 #
 # Flags:
 #   --max-package-size 20000 : Splits packages >20GB into .part00X chunks
@@ -41,6 +41,11 @@ create_zarf_package() {
     local package_dir="$1"
     local package_name="$2"
 
+    if [ ! -d "${package_dir}" ]; then
+        echo -e "${YELLOW}[SKIP] Directory ${package_dir} does not exist. Skipping.${NC}"
+        return
+    fi
+
     echo -e "${BOLD}--> Creating Zarf Package: ${package_name}${NC}"
     echo -e "    Directory: ${package_dir}"
 
@@ -57,9 +62,11 @@ create_zarf_package() {
 }
 
 # ------------------------------------------------------------------------------
-# 1. GitLab 18 Core + MinIO + AI Gateway FIPS Package
+# 1. Infrastructure Core Packages (MinIO, AI Gateway, GitLab Monolith)
 # ------------------------------------------------------------------------------
-create_zarf_package "${BASE_DIR}/01-pkg-gitlab-core" "01-gitlab-core"
+create_zarf_package "${BASE_DIR}/01-pkg-gitlab-core/minio"      "01-minio-storage"
+create_zarf_package "${BASE_DIR}/01-pkg-gitlab-core/ai-gateway" "01-ai-gateway-fips"
+create_zarf_package "${BASE_DIR}/01-pkg-gitlab-core/gitlab"     "01-gitlab-core"
 
 # ------------------------------------------------------------------------------
 # 2. vLLM Semantic Router Hub Package
@@ -69,10 +76,10 @@ create_zarf_package "${BASE_DIR}/02-pkg-vllm-router-hub" "02-vllm-router-hub"
 # ------------------------------------------------------------------------------
 # 3. Model Inference Spokes
 # ------------------------------------------------------------------------------
-create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-nemotron-3.5" "03-model-nemotron-3.5"
+create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-nemotron-3.5" "03-model-nemotron-3-5"
 create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-gpt-oss-120b" "03-model-gpt-oss-120b"
-create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-laguna-xs" "03-model-laguna-xs"
-create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-nomic-embed" "03-model-nomic-embed"
+create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-laguna-xs"    "03-model-laguna-xs"
+create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-nomic-embed"  "03-model-nomic-embed"
 
 # ------------------------------------------------------------------------------
 # 4. Zero-Trust Agent Sandbox & Runner Package

@@ -33,6 +33,7 @@ runners:
       [runners.kubernetes]
         namespace = "agent-sandbox"
         image = "registry.gitlab.com/gitlab-org/build/cng/gitlab-base:v18.0.0-fips"
+        helper_image = "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:ubi-fips-x86_64-latest"
         privileged = false
         allow_privilege_escalation = false
         cpu_request = "1000m"

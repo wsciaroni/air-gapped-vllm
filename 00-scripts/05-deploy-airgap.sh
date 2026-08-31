@@ -5,13 +5,15 @@
 #              Duo Self-Hosted & Autonomous Agent stack using Zarf into VMware
 #              vSphere with Tanzu.
 #
-# Execution Order:
+# Modular Execution Order:
 #   1. Cluster Pre-flight & Namespaces
-#   2. Duo Workflow JWT Secrets
-#   3. Zarf Package 01: GitLab Core + MinIO + AI Gateway (FIPS)
-#   4. Zarf Package 02: vLLM Semantic Router Hub
-#   5. Zarf Package 03: Model Spokes (Nemotron, GPT OSS 120B, Laguna XS, Nomic)
-#   6. Zarf Package 04: Agent Sandbox & Zero-Trust Network Policies
+#   2. Duo Workflow RSA JWT Secrets
+#   3. Zarf Package 01A: MinIO S3 Object Storage
+#   4. Zarf Package 01B: GitLab Duo AI Gateway (FIPS)
+#   5. Zarf Package 01C: GitLab 18 Core Monolith (FIPS)
+#   6. Zarf Package 02:  vLLM Semantic Router Hub
+#   7. Zarf Package 03:  Model Spokes (Nemotron, GPT OSS, Laguna XS, Nomic)
+#   8. Zarf Package 04:  Agent Sandbox & Zero-Trust Network Policies
 # ==============================================================================
 
 set -euo pipefail
@@ -80,56 +82,70 @@ fi
 deploy_zarf_pkg() {
     local pattern="$1"
     local desc="$2"
+    local src_fallback="${3:-}"
     
     echo -e "\n${BOLD}${BLUE}===================================================================${NC}"
     echo -e "${BOLD}--> Deploying: ${desc}${NC}"
     echo -e "${BOLD}${BLUE}===================================================================${NC}"
 
-    local pkg_file
-    pkg_file=$(find "${DIST_DIR}" -maxdepth 1 -name "zarf-package-${pattern}*.tar.zst" | head -n 1)
+    local pkg_file=""
+    if [ -d "${DIST_DIR}" ]; then
+        pkg_file=$(find "${DIST_DIR}" -maxdepth 1 -name "zarf-package-${pattern}*.tar.zst" 2>/dev/null | head -n 1 || true)
+    fi
 
-    if [ -z "${pkg_file}" ] || [ ! -f "${pkg_file}" ]; then
-        # Check if running directly from component folder
-        echo -e "${YELLOW}[INFO] Pre-built package not found in ${DIST_DIR}. Checking local source...${NC}"
-        local src_dir="${BASE_DIR}/${pattern}"
-        if [ -d "${src_dir}" ]; then
-            pushd "${src_dir}" > /dev/null
+    if [ -n "${pkg_file}" ] && [ -f "${pkg_file}" ]; then
+        echo -e "Deploying bundle from dist/: ${pkg_file}"
+        zarf package deploy "${pkg_file}" --confirm
+        echo -e "${GREEN}[OK] Deployed ${desc}${NC}"
+        return
+    fi
+
+    # Fallback to local source directory or local .tar.zst
+    if [ -n "${src_fallback}" ] && [ -d "${src_fallback}" ]; then
+        local local_pkg
+        local_pkg=$(find "${src_fallback}" -maxdepth 1 -name "zarf-package-${pattern}*.tar.zst" 2>/dev/null | head -n 1 || true)
+        if [ -n "${local_pkg}" ] && [ -f "${local_pkg}" ]; then
+            echo -e "Deploying local bundle: ${local_pkg}"
+            zarf package deploy "${local_pkg}" --confirm
+            echo -e "${GREEN}[OK] Deployed ${desc}${NC}"
+            return
+        elif [ -f "${src_fallback}/zarf.yaml" ]; then
+            echo -e "Deploying directly from source: ${src_fallback}"
+            pushd "${src_fallback}" > /dev/null
             zarf package deploy . --confirm
             popd > /dev/null
+            echo -e "${GREEN}[OK] Deployed ${desc}${NC}"
             return
-        else
-            echo -e "${RED}[ERROR] Cannot find Zarf package or source for ${pattern}!${NC}"
-            exit 1
         fi
     fi
 
-    echo -e "Deploying bundle: ${pkg_file}"
-    zarf package deploy "${pkg_file}" --confirm
-    echo -e "${GREEN}[OK] Deployed ${desc}${NC}"
+    echo -e "${YELLOW}[SKIP] Package for ${pattern} not found. Skipping.${NC}"
 }
 
 # ------------------------------------------------------------------------------
-# 3. Deploy GitLab Core, MinIO & FIPS AI Gateway
+# 3. Deploy Core Infrastructure (MinIO Storage, AI Gateway, GitLab Monolith)
 # ------------------------------------------------------------------------------
-deploy_zarf_pkg "gitlab-core" "GitLab 18 Core, MinIO, and FIPS AI Gateway"
+deploy_zarf_pkg "minio-storage"    "MinIO S3 Object Storage"              "${BASE_DIR}/01-pkg-gitlab-core/minio"
+deploy_zarf_pkg "ai-gateway-fips" "GitLab Duo AI Gateway (FIPS)"         "${BASE_DIR}/01-pkg-gitlab-core/ai-gateway"
+deploy_zarf_pkg "gitlab-core"     "GitLab 18 Core Monolith (FIPS)"       "${BASE_DIR}/01-pkg-gitlab-core/gitlab"
 
 # ------------------------------------------------------------------------------
 # 4. Deploy vLLM Semantic Router Hub
 # ------------------------------------------------------------------------------
-deploy_zarf_pkg "vllm-router-hub" "vLLM Semantic Router (Hub Gateway)"
+deploy_zarf_pkg "vllm-router-hub" "vLLM Semantic Router (Hub Gateway)"   "${BASE_DIR}/02-pkg-vllm-router-hub"
 
 # ------------------------------------------------------------------------------
 # 5. Deploy Model Spokes
 # ------------------------------------------------------------------------------
-deploy_zarf_pkg "model-nemotron-3.5" "Nemotron 3.5 Spoke (30B MoE, Hermes Tool Calling)"
-deploy_zarf_pkg "model-gpt-oss-120b" "GPT OSS 120B Spoke (FP8 MoE Reasoning)"
-deploy_zarf_pkg "model-laguna-xs"    "Laguna XS 2.1 Spoke (256k Context Model)"
-deploy_zarf_pkg "model-nomic-embed"  "Nomic Embed Spoke (TEI Vector Embeddings)"
+deploy_zarf_pkg "model-nemotron-3-5" "Nemotron 3.5 Spoke (30B MoE, Hermes)" "${BASE_DIR}/03-pkg-models-spokes/model-nemotron-3.5"
+deploy_zarf_pkg "model-gpt-oss-120b" "GPT OSS 120B Spoke (FP8 MoE Reasoning)" "${BASE_DIR}/03-pkg-models-spokes/model-gpt-oss-120b"
+deploy_zarf_pkg "model-laguna-xs"    "Laguna XS 2.1 Spoke (256k Context Model)" "${BASE_DIR}/03-pkg-models-spokes/model-laguna-xs"
+deploy_zarf_pkg "model-nomic-embed"  "Nomic Embed Spoke (TEI Embeddings)"      "${BASE_DIR}/03-pkg-models-spokes/model-nomic-embed"
 
 # ------------------------------------------------------------------------------
 # 6. Deploy Zero-Trust Agent Sandbox & Runner
 # ------------------------------------------------------------------------------
-deploy_zarf_pkg "agent-sandbox" "Agent Sandbox Runner & Zero-Trust Network Policies"
+deploy_zarf_pkg "agent-sandbox" "Agent Sandbox Runner & Network Policies" "${BASE_DIR}/04-pkg-agent-sandbox"
 
 # ------------------------------------------------------------------------------
 # Status Verification
@@ -139,19 +155,21 @@ echo -e "${BOLD}                POST-DEPLOYMENT CLUSTER STATUS                  
 echo -e "${BOLD}===================================================================${NC}"
 
 echo -e "\n${BLUE}--> Checking GPU Pod Allocation in 'inference' namespace:${NC}"
-kubectl get pods -n inference -o wide
+kubectl get pods -n inference -o wide 2>/dev/null || true
 
-echo -e "\n${BLUE}--> Checking GitLab & AI Gateway Pods:${NC}"
-kubectl get pods -n gitlab -l app.kubernetes.io/name=gitlab
-kubectl get pods -n ai-gateway
+echo -e "\n${BLUE}--> Checking MinIO, GitLab & AI Gateway Pods:${NC}"
+kubectl get pods -n minio 2>/dev/null || true
+kubectl get pods -n gitlab 2>/dev/null || true
+kubectl get pods -n ai-gateway 2>/dev/null || true
 
 echo -e "\n${BLUE}--> Checking Agent Sandbox Runner Pods:${NC}"
-kubectl get pods -n agent-sandbox
+kubectl get pods -n agent-sandbox 2>/dev/null || true
 
 echo -e "\n${BOLD}===================================================================${NC}"
 echo -e "${GREEN}[SUCCESS] Air-Gapped GitLab Duo & Autonomous Agent Stack Deployed!${NC}"
 echo -e "Access URLs:"
 echo -e "  - GitLab UI: https://gitlab.internal.local"
+echo -e "  - MinIO Console: https://minio.gitlab.internal.local (or port 9001)"
 echo -e "  - AI Gateway: http://ai-gateway.ai-gateway.svc.cluster.local:5052/v1"
 echo -e "  - vLLM Semantic Router: http://vllm-router.inference.svc.cluster.local:8000/v1"
 echo -e "${BOLD}===================================================================${NC}"

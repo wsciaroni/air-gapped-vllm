@@ -1,6 +1,12 @@
 # Zarf Pakcages
 *.tar.zst
 
+# Generated HTML files
+*.html
+
+# Generated SBOMs
+registry.*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

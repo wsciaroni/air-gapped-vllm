@@ -19,11 +19,11 @@ components:
     description: "Semantic Router Gateway forwarding requests to backend model services"
     required: true
     charts:
-      - name: vllm-router
-        url: https://github.com/llm-semantic-router/vllm-router.git
-        version: 0.4.2
+      - name: vllm-chart
+        localPath: ./chart
         namespace: inference
         valuesFiles:
           - values-router.yaml
     images:
-      - ghcr.io/llm-semantic-router/vllm-router:v0.4.2
+      - quay.io/llm_router/vllm-router:latest
+      - docker.io/vllm/vllm-openai:latest
