@@ -25,5 +25,4 @@ components:
         valuesFiles:
           - values-router.yaml
     images:
-      - quay.io/llm_router/vllm-router:latest
-      - docker.io/vllm/vllm-openai:latest
+      - ghcr.io/llm-semantic-router/vllm-router:v0.4.2

@@ -2,45 +2,91 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vllm-router
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace | default .Values.namespace | default "inference" }}
+  labels:
+    app.kubernetes.io/name: vllm-router
+    app: vllm-router
 spec:
-  replicas: {{ .Values.router.replicaCount }}
+  replicas: {{ .Values.replicaCount | default (and .Values.router .Values.router.replicaCount) | default 2 }}
   selector:
     matchLabels:
-      app: vllm-router
+      app.kubernetes.io/name: vllm-router
   template:
     metadata:
       labels:
+        app.kubernetes.io/name: vllm-router
         app: vllm-router
     spec:
       serviceAccountName: vllm-router-sa
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: vllm-router
-        image: {{ .Values.router.image }}
-        imagePullPolicy: Always
+        image: {{ if .Values.image }}{{ printf "%s:%s" .Values.image.repository .Values.image.tag | quote }}{{ else if and .Values.router .Values.router.image }}{{ .Values.router.image | quote }}{{ else }}"ghcr.io/llm-semantic-router/vllm-router:v0.4.2"{{ end }}
+        imagePullPolicy: {{ if .Values.image }}{{ .Values.image.pullPolicy | default "IfNotPresent" | quote }}{{ else }}"IfNotPresent"{{ end }}
         command: ["bash", "-c"]
         args: ["cd /app; python3 router.py"]
         ports:
-        - containerPort: 8000
+        - containerPort: {{ if .Values.service }}{{ .Values.service.targetPort | default 8000 }}{{ else }}8000{{ end }}
           name: vllm-port
+          protocol: TCP
         env:
+        {{- if .Values.routerConfig }}
+        - name: ROUTER_MODE
+          value: {{ .Values.routerConfig.mode | default "gateway" | quote }}
+        - name: ROUTER_PORT
+          value: {{ .Values.routerConfig.port | default 8000 | quote }}
+        - name: ROUTER_TIMEOUT
+          value: {{ .Values.routerConfig.timeout | default 300 | quote }}
+        - name: MODELS
+          value: |
+            {{- range .Values.routerConfig.routes }}
+            {{ .model_name }}={{ .upstream_url }},
+            {{- end }}
+        {{- else if .Values.models }}
         - name: MODELS
           value: |
             {{- range .Values.models }}
-            {{ .modelName }}=http://{{ .name }}.{{ $.Values.namespace }}.svc.cluster.local:8000,
+            {{ .modelName }}=http://{{ .name }}.{{ $.Release.Namespace | default $.Values.namespace | default "inference" }}.svc.cluster.local:8000,
             {{- end }}
+        {{- end }}
+        {{- with .Values.resources }}
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.livenessProbe }}
+        livenessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.readinessProbe }}
+        readinessProbe:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   labels:
+    app.kubernetes.io/name: vllm-router
     app: vllm-router
   name: vllm-router
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace | default .Values.namespace | default "inference" }}
 spec:
+  type: {{ if .Values.service }}{{ .Values.service.type | default "ClusterIP" }}{{ else }}"ClusterIP"{{ end }}
   ports:
-    - port: {{ .Values.router.service.port }}
+    - port: {{ if .Values.service }}{{ .Values.service.port | default 8000 }}{{ else if and .Values.router .Values.router.service }}{{ .Values.router.service.port | default 8000 }}{{ else }}8000{{ end }}
       targetPort: vllm-port
       name: vllm-router
+      protocol: TCP
   selector:
-    app: vllm-router
+    app.kubernetes.io/name: vllm-router

@@ -11,6 +11,8 @@
 #      - DNS: 'kube-system' namespace on UDP/TCP 53.
 #      - GitLab: 'gitlab' namespace on TCP 80 & 443 (Git & API operations).
 #      - AI Gateway: 'ai-gateway' namespace on TCP 5052 (LLM / Agent reasoning).
+#      - K8s API Server: TCP 443 & 6443 (Runner Kubernetes Executor pod management).
+#      - MinIO: 'minio' namespace on TCP 9000 (Artifacts & build cache).
 #   4. ALL other traffic (ESXi hypervisor, vCenter, internal subnets) is BLOCKED.
 # ==============================================================================
 
@@ -77,3 +79,22 @@ spec:
       ports:
         - protocol: TCP
           port: 5052
+
+    # 4. Kubernetes API Server (Runner Kubernetes Executor Pod Management)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+
+    # 5. MinIO S3 Object Store (CI/CD Artifacts & Build Cache Storage)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: minio
+      ports:
+        - protocol: TCP
+          port: 9000
