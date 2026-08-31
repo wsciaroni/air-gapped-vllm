@@ -1,0 +1,36 @@
+# ==============================================================================
+# Zarf Package: 05-pkg-openwebui
+# Description: Modular Zarf package bundling Open WebUI for air-gapped,
+#              interactive multi-model chat, prompt experimentation, and RAG.
+# ==============================================================================
+
+kind: ZarfPackageConfig
+apiVersion: zarf.dev/v1alpha1
+metadata:
+  name: openwebui
+  version: 0.5.20
+  architecture: amd64
+  description: "Air-gapped Open WebUI connected to vLLM Semantic Router and TEI Embeddings"
+  authors: "Platform AI Infrastructure Team"
+
+components:
+  - name: openwebui-security
+    description: "Zero-Trust NetworkPolicy for the openwebui namespace"
+    required: true
+    manifests:
+      - name: openwebui-security-manifests
+        namespace: openwebui
+        files:
+          - network-policy.yaml
+
+  - name: openwebui-core
+    description: "Open WebUI deployment, service, PVC, and ingress"
+    required: true
+    manifests:
+      - name: openwebui-manifests
+        namespace: openwebui
+        files:
+          - deployment.yaml
+          - ingress.yaml
+    images:
+      - ghcr.io/open-webui/open-webui:main

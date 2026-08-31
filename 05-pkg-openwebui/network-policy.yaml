@@ -1,0 +1,65 @@
+# ==============================================================================
+# Manifest: network-policy.yaml
+# Namespace: openwebui
+# Description: Zero-Trust Kubernetes NetworkPolicy enforcing strict isolation for
+#              Open WebUI in air-gapped environments.
+#
+# Rules:
+#   1. Default-Deny ALL Ingress & Egress.
+#   2. Ingress: Permit traffic on TCP 8080 from Ingress Controller / users.
+#   3. Egress:
+#      - DNS: 'kube-system' namespace on UDP/TCP 53.
+#      - Inference: 'inference' namespace on TCP 8000 (vLLM Router & TEI Embeddings).
+#   4. ALL other outbound traffic (ESXi hypervisor, vCenter, internet) is BLOCKED.
+# ==============================================================================
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: openwebui-zero-trust
+  namespace: openwebui
+  labels:
+    app.kubernetes.io/name: open-webui
+    app.kubernetes.io/part-of: ai-portal
+    security.gitlab.com/policy: zero-trust-isolation
+spec:
+  podSelector: {} # Applies to all pods in openwebui namespace
+  policyTypes:
+    - Ingress
+    - Egress
+
+  # ----------------------------------------------------------------------------
+  # INGRESS RULES
+  # ----------------------------------------------------------------------------
+  ingress:
+    # Allow incoming HTTP traffic on port 8080
+    - from:
+        - namespaceSelector: {} # Allow from ingress controllers across namespaces
+      ports:
+        - protocol: TCP
+          port: 8080
+
+  # ----------------------------------------------------------------------------
+  # EGRESS RULES
+  # ----------------------------------------------------------------------------
+  egress:
+    # 1. DNS Resolution (CoreDNS in kube-system)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # 2. Inference Spoke & Router Services (vLLM Semantic Router Hub & TEI Embeddings)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inference
+      ports:
+        - protocol: TCP
+          port: 8000

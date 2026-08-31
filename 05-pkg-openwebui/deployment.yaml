@@ -1,0 +1,163 @@
+# ==============================================================================
+# Manifest: deployment.yaml
+# Namespace: openwebui
+# Description: Open WebUI Deployment, Service, and PVC configured for air-gapped
+#              operation with vLLM Semantic Router and TEI Embeddings backend.
+# ==============================================================================
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openwebui-data-pvc
+  namespace: openwebui
+  labels:
+    app.kubernetes.io/name: open-webui
+    app.kubernetes.io/part-of: ai-portal
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: open-webui
+  namespace: openwebui
+  labels:
+    app.kubernetes.io/name: open-webui
+    app.kubernetes.io/part-of: ai-portal
+    app.kubernetes.io/component: web-ui
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: open-webui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: open-webui
+    spec:
+      containers:
+        - name: open-webui
+          image: ghcr.io/open-webui/open-webui:main
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            # Server & Networking
+            - name: PORT
+              value: "8080"
+            - name: WEBUI_URL
+              value: "http://openwebui.internal.local"
+
+            # Air-Gap / Offline Hardening
+            - name: OFFLINE_MODE
+              value: "True"
+            - name: SCARF_NO_ANALYTICS
+              value: "True"
+            - name: DO_NOT_TRACK
+              value: "True"
+            - name: ANONYMIZED_TELEMETRY
+              value: "False"
+            - name: ENABLE_OLLAMA_API
+              value: "False"
+
+            # Upstream OpenAI API Endpoint (vLLM Semantic Router Hub)
+            - name: ENABLE_OPENAI_API
+              value: "True"
+            - name: OPENAI_API_BASE_URL
+              value: "http://vllm-router.inference.svc.cluster.local:8000/v1"
+            - name: OPENAI_API_KEY
+              value: "vllm-internal-airgap-token"
+
+            # Air-Gapped RAG Embeddings via TEI Nomic Embed Spoke
+            - name: RAG_EMBEDDING_ENGINE
+              value: "openai"
+            - name: RAG_OPENAI_API_BASE_URL
+              value: "http://tei-embed-service.inference.svc.cluster.local:8000/v1"
+            - name: RAG_OPENAI_API_KEY
+              value: "vllm-internal-airgap-token"
+            - name: RAG_EMBEDDING_MODEL
+              value: "nomic-embed-text"
+            - name: RAG_EMBEDDING_MODEL_AUTO_UPDATE
+              value: "False"
+
+            # Authentication & Security
+            - name: WEBUI_AUTH
+              value: "True"
+            - name: ENABLE_SIGNUP
+              value: "True"
+            - name: DEFAULT_USER_ROLE
+              value: "user"
+
+            # Disable External Online Features in Air Gap
+            - name: ENABLE_SEARCH
+              value: "False"
+            - name: IMAGE_GENERATION_ENGINE
+              value: ""
+            - name: AUDIO_STT_ENGINE
+              value: ""
+            - name: AUDIO_TTS_ENGINE
+              value: ""
+
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+
+          volumeMounts:
+            - name: openwebui-data
+              mountPath: /app/backend/data
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+      volumes:
+        - name: openwebui-data
+          persistentVolumeClaim:
+            claimName: openwebui-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: open-webui
+  namespace: openwebui
+  labels:
+    app.kubernetes.io/name: open-webui
+    app.kubernetes.io/part-of: ai-portal
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: open-webui

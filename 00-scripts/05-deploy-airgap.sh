@@ -14,6 +14,7 @@
 #   6. Zarf Package 02:  vLLM Semantic Router Hub
 #   7. Zarf Package 03:  Model Spokes (Nemotron, GPT OSS, Laguna XS, Nomic)
 #   8. Zarf Package 04:  Agent Sandbox & Zero-Trust Network Policies
+#   9. Zarf Package 05:  Open WebUI (Interactive Chat & RAG Portal)
 # ==============================================================================
 
 set -euo pipefail
@@ -53,10 +54,10 @@ echo -e "${GREEN}[OK] Connected to Kubernetes cluster.${NC}"
 
 # Step 0: Ensure Namespaces exist
 echo -e "\n${BLUE}--> Creating isolated namespaces...${NC}"
-for ns in gitlab minio ai-gateway inference agent-sandbox; do
+for ns in gitlab minio ai-gateway inference agent-sandbox openwebui; do
     kubectl create namespace "${ns}" --dry-run=client -o yaml | kubectl apply -f -
 done
-echo -e "${GREEN}[OK] Namespaces verified: gitlab, minio, ai-gateway, inference, agent-sandbox${NC}"
+echo -e "${GREEN}[OK] Namespaces verified: gitlab, minio, ai-gateway, inference, agent-sandbox, openwebui${NC}"
 
 # Step 1: Initialize Zarf if needed
 if ! kubectl get namespace zarf > /dev/null 2>&1; then
@@ -148,6 +149,11 @@ deploy_zarf_pkg "model-nomic-embed"  "Nomic Embed Spoke (TEI Embeddings)"      "
 deploy_zarf_pkg "agent-sandbox" "Agent Sandbox Runner & Network Policies" "${BASE_DIR}/04-pkg-agent-sandbox"
 
 # ------------------------------------------------------------------------------
+# 7. Deploy Open WebUI (Interactive LLM Chat & RAG Portal)
+# ------------------------------------------------------------------------------
+deploy_zarf_pkg "openwebui" "Open WebUI (Interactive LLM Chat & RAG Portal)" "${BASE_DIR}/05-pkg-openwebui"
+
+# ------------------------------------------------------------------------------
 # Status Verification
 # ------------------------------------------------------------------------------
 echo -e "\n${BOLD}===================================================================${NC}"
@@ -165,11 +171,15 @@ kubectl get pods -n ai-gateway 2>/dev/null || true
 echo -e "\n${BLUE}--> Checking Agent Sandbox Runner Pods:${NC}"
 kubectl get pods -n agent-sandbox 2>/dev/null || true
 
+echo -e "\n${BLUE}--> Checking Open WebUI Pods:${NC}"
+kubectl get pods -n openwebui 2>/dev/null || true
+
 echo -e "\n${BOLD}===================================================================${NC}"
-echo -e "${GREEN}[SUCCESS] Air-Gapped GitLab Duo & Autonomous Agent Stack Deployed!${NC}"
+echo -e "${GREEN}[SUCCESS] Air-Gapped GitLab Duo, Open WebUI & Autonomous Agent Stack Deployed!${NC}"
 echo -e "Access URLs:"
 echo -e "  - GitLab UI: https://gitlab.internal.local"
 echo -e "  - MinIO Console: https://minio.gitlab.internal.local (or port 9001)"
 echo -e "  - AI Gateway: http://ai-gateway.ai-gateway.svc.cluster.local:5052/v1"
 echo -e "  - vLLM Semantic Router: http://vllm-router.inference.svc.cluster.local:8000/v1"
+echo -e "  - Open WebUI: http://openwebui.internal.local (or port 8080)"
 echo -e "${BOLD}===================================================================${NC}"

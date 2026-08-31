@@ -87,6 +87,11 @@ create_zarf_package "${BASE_DIR}/03-pkg-models-spokes/model-nomic-embed"  "03-mo
 create_zarf_package "${BASE_DIR}/04-pkg-agent-sandbox" "04-agent-sandbox"
 
 # ------------------------------------------------------------------------------
+# 5. Open WebUI (Interactive LLM Chat & RAG Portal)
+# ------------------------------------------------------------------------------
+create_zarf_package "${BASE_DIR}/05-pkg-openwebui" "05-openwebui"
+
+# ------------------------------------------------------------------------------
 # Generate SHA256 Checksums
 # ------------------------------------------------------------------------------
 echo -e "${BOLD}--> Generating SHA-256 checksum manifest for transport verification...${NC}"

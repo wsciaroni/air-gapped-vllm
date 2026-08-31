@@ -4,7 +4,7 @@ Production-grade, modular repository for deploying an air-gapped, FIPS-compliant
 
 ---
 
-## 1. Architecture Overview
+### 1. Architecture Overview
 
 ```
                       +------------------------------------------+
@@ -22,15 +22,18 @@ Production-grade, modular repository for deploying an air-gapped, FIPS-compliant
          ^                                                                   |
          | Git & API (80/443)                                    OpenAI /v1  |
          |                                                                   v
-+-------------------+                                              +-------------------+
-| Namespace: sandbox|                                              | Namespace: infer  |
-| - Agent Runners   |--------------------------------------------->| - vLLM Router Hub |
-| - Zero-Trust NetPol                                              +-------------------+
-+-------------------+                                                        |
-                                                                             +--> Nemotron 3.5 (TP=2, Hermes)
-                                                                             +--> GPT OSS 120B (TP=2, FP8 MoE)
-                                                                             +--> Laguna XS 2.1 (TP=2, 256k)
-                                                                             +--> Nomic Embed (TEI Embeddings)
++-------------------+      OpenAI /v1      +-------------------------------------------+
+| Namespace: sandbox|--------------------->| Namespace: inference                      |
+| - Agent Runners   |                      | - vLLM Router Hub (Port 8000)             |
+| - Zero-Trust NetPol                      +-------------------------------------------+
++-------------------+                                    |         |          |
+                                                         v         v          v
++-------------------+ OpenAI /v1 (Chat & RAG)        Nemotron   GPT OSS     Nomic
+| Namespace:        |-----------------------------------+ 3.5     120B      Embed
+|  openwebui        |
+| - Open WebUI Pod  |
+| - vSAN PVC (Data) |
++-------------------+
 ```
 
 ---
@@ -71,13 +74,18 @@ Production-grade, modular repository for deploying an air-gapped, FIPS-compliant
 │   │   ├── pdb.yaml                   # PodDisruptionBudget
 │   │   └── zarf.yaml                  # Independent Zarf Spoke manifest
 │   └── model-nomic-embed/
-│   │   ├── Dockerfile                 # TEI base + baked embeddings
-│   │   ├── deployment.yaml            # Text Embeddings Inference deployment & service
-│   │   └── zarf.yaml                  # Independent Zarf Spoke manifest
-└── 04-pkg-agent-sandbox/
-    ├── zarf.yaml                      # Zarf package for isolated GitLab Runners & security policies
-    ├── values-runner.yaml             # Kubernetes executor runner values targeting agent jobs
-    └── network-policy.yaml            # Zero-Trust NetworkPolicy isolating runner pods
+│       ├── Dockerfile                 # TEI base + baked embeddings
+│       ├── deployment.yaml            # Text Embeddings Inference deployment & service
+│       └── zarf.yaml                  # Independent Zarf Spoke manifest
+├── 04-pkg-agent-sandbox/
+│   ├── zarf.yaml                      # Zarf package for isolated GitLab Runners & security policies
+│   ├── values-runner.yaml             # Kubernetes executor runner values targeting agent jobs
+│   └── network-policy.yaml            # Zero-Trust NetworkPolicy isolating runner pods
+└── 05-pkg-openwebui/
+    ├── zarf.yaml                      # Zarf package bundling Open WebUI image and manifests
+    ├── deployment.yaml                # Deployment, Service, and vSAN PVC for chat/user storage
+    ├── ingress.yaml                   # Ingress definition for openwebui.internal.local
+    └── network-policy.yaml            # Zero-Trust NetworkPolicy isolating web UI egress
 ```
 
 ---
@@ -138,7 +146,15 @@ Cluster: **8x Dell VxRail nodes** managed by VMware vSphere with Tanzu. Each nod
    kubectl get pods -n gitlab
    kubectl get pods -n ai-gateway
    kubectl get pods -n agent-sandbox
+   kubectl get pods -n openwebui
    ```
+
+3. **Access Endpoints:**
+   - **GitLab UI:** `https://gitlab.internal.local`
+   - **Open WebUI (Chat & RAG):** `http://openwebui.internal.local` (or `kubectl port-forward -n openwebui svc/open-webui 8080:8080`)
+   - **MinIO Console:** `https://minio.gitlab.internal.local` (Port 9001)
+   - **AI Gateway:** `http://ai-gateway.ai-gateway.svc.cluster.local:5052/v1`
+   - **vLLM Semantic Router:** `http://vllm-router.inference.svc.cluster.local:8000/v1`
 
 ---
 
@@ -147,3 +163,4 @@ Cluster: **8x Dell VxRail nodes** managed by VMware vSphere with Tanzu. Each nod
 - **FIPS 140-2/3 Compliance:** All core GitLab components run with `global.image.tagSuffix: "-fips"` using official Red Hat UBI FIPS base layers.
 - **IPC Stability:** All GPU pods mount an `emptyDir` memory volume at `/dev/shm` (size `16Gi` / `64Gi`) to eliminate NCCL inter-process crashes during tensor parallelism.
 - **Agent Sandbox Isolation:** Pods running in `agent-sandbox` are enforced with a default-deny `NetworkPolicy`. Egress is restricted exclusively to DNS (`kube-system:53`), GitLab API/Git (`gitlab:80/443`), and AI Gateway (`ai-gateway:5052`), preventing AI-generated code execution from probing the vSphere management plane or internal subnets.
+- **Open WebUI Hardening:** Deployed with telemetry disabled (`ANONYMIZED_TELEMETRY=False`, `DO_NOT_TRACK=True`, `SCARF_NO_ANALYTICS=True`), external API polling disabled (`ENABLE_OLLAMA_API=False`, `ENABLE_SEARCH=False`), zero-trust network policy restricting egress exclusively to DNS (`kube-system:53`) and inference router/embeddings (`inference:8000`), with persistent user data on vSAN storage.
